@@ -1,0 +1,36 @@
+flowchart TD
+    A["Cliente (OpenWebUI / app)"]
+    B["proxy.py :8080"]
+    C["LM Studio :1234"]
+    D["Telegram Bot API"]
+
+    A -->|"POST /v1/chat/completions"| B
+    B -->|"Reenvía request"| C
+    C -->|"Streaming SSE chunks"| B
+    B -->|"await write(chunk)"| A
+
+    B -->|"Detecta data:[DONE] o finish_reason:stop"| E["saw_done = True"]
+    E --> F["telegram_send(✅ Inferencia completada\nModelo + Hora)"]
+    F --> D
+    D -->|"Notificación push"| G["📱 Celular del usuario"]
+
+    subgraph "main.py (monitor polling)"
+        H["GET /slots llama.cpp"]
+        I{"slot.state != 0?"}
+        J["GET /api/v1/models (fallback)"]
+        K["_is_generating()"]
+        L["Idle confirmado → telegram_send"]
+        H --> I
+        I -->|"No disponible"| J
+        J --> K
+        I -->|"Sí, generando"| M["was_generating=True"]
+        K -->|"was_generating→idle x IDLE_CONFIRM"| L
+        L --> D
+    end
+
+    subgraph "Bugs corregidos"
+        N["❌ proxy_resp.write(chunk)\n→ ✅ await proxy_resp.write(chunk)"]
+        O["❌ proxy_resp.write(data)\n→ ✅ await proxy_resp.write(data)"]
+        P["❌ notify siempre (finally)\n→ ✅ solo si saw_done=True"]
+        Q["❌ main.py nunca detectaba\ngenerating (API no expone estado)\n→ ✅ usa /slots primero"]
+    end

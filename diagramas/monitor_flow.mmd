@@ -1,0 +1,23 @@
+flowchart TD
+    A["Inicio: python main.py"] --> B["Validar .env\n(TELEGRAM_TOKEN, CHAT_ID)"]
+    B -->|Falta variable| C["Error y SystemExit"]
+    B -->|OK| D["Enviar mensaje Telegram\nMonitor iniciado"]
+    D --> E["Bucle principal\nasyncio loop"]
+
+    E --> F["GET /api/v1/models\n(LM Studio)"]
+    F -->|Sin respuesta| G["Warning log\nreintentar"]
+    G --> E
+
+    F -->|JSON OK| H["_is_generating(response)"]
+    H -->|state == generating\no tokens_per_second > 0| I["was_generating = True\nidle_streak = 0\nlog: en curso"]
+    H -->|idle / sin campos extra| J{"was_generating?"}
+
+    J -->|No| K["Esperar POLL_INTERVAL"]
+    J -->|Sí| L["idle_streak += 1\nlog: idle check N/IDLE_CONFIRM"]
+    L --> M{"idle_streak >= IDLE_CONFIRM?"}
+    M -->|No| K
+    M -->|Sí| N["Enviar Telegram\nLM Studio terminó ✅\nHora actual"]
+    N --> O["was_generating = False\nidle_streak = 0"]
+    O --> K
+    I --> K
+    K --> E

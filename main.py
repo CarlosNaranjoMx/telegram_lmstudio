@@ -59,6 +59,25 @@ async def telegram_send(text: str) -> bool:
 
 
 # ── LM Studio ────────────────────────────────────────────────────────────────
+async def lmstudio_get_slots() -> list | None:
+    """
+    Consulta /slots de llama.cpp (usado por LM Studio internamente).
+    state 0 = idle, state 1 = procesando.
+    Retorna lista de slots o None si no está disponible.
+    """
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"{LMSTUDIO_URL}/slots",
+                timeout=aiohttp.ClientTimeout(total=3),
+            ) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+    except Exception:
+        pass
+    return None
+
+
 async def lmstudio_get_models() -> dict | list | None:
     """
     Consulta /api/v1/models de LM Studio.
@@ -148,14 +167,19 @@ async def run_monitor() -> None:
     idle_streak = 0
 
     while True:
-        response = await lmstudio_get_models()
-
-        if response is None:
-            log.warning("LM Studio no responde, reintentando en %ss...", POLL_INTERVAL)
-            await asyncio.sleep(POLL_INTERVAL)
-            continue
-
-        generating = _is_generating(response)
+        # Intentar /slots primero (llama.cpp) — más preciso que /models
+        slots = await lmstudio_get_slots()
+        if slots is not None:
+            generating = any(slot.get("state", 0) != 0 for slot in slots)
+            log.debug("Slots: %s → generating=%s", slots, generating)
+        else:
+            # Fallback: /api/v1/models
+            response = await lmstudio_get_models()
+            if response is None:
+                log.warning("LM Studio no responde, reintentando en %ss...", POLL_INTERVAL)
+                await asyncio.sleep(POLL_INTERVAL)
+                continue
+            generating = _is_generating(response)
 
         if generating:
             if not was_generating:
